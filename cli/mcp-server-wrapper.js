@@ -5,12 +5,31 @@
  */
 
 import { spawn } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Load .env from project root (won't overwrite existing env vars)
+try {
+  const envPath = join(__dirname, '..', '.env');
+  const envFile = readFileSync(envPath, 'utf8');
+  for (const line of envFile.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+} catch {
+  // No .env file — that's fine
+}
 
 // Determine plugin root directory
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || join(__dirname, '..');
