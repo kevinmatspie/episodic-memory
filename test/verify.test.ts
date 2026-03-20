@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { initDatabase, insertExchange } from '../src/db.js';
 import { ConversationExchange } from '../src/types.js';
+import { EMBEDDING_DIM } from '../src/constants.js';
 
 // Suppress console output for clean test runs
 const restoreConsole = suppressConsole();
@@ -98,7 +99,7 @@ describe('verifyIndex', () => {
       lineEnd: 2
     };
 
-    const embedding = new Array(384).fill(0.1);
+    const embedding = new Array(EMBEDDING_DIM).fill(0.1);
     insertExchange(db, exchange, embedding);
     db.close();
 
@@ -139,7 +140,7 @@ describe('verifyIndex', () => {
       lineEnd: 2
     };
 
-    const embedding = new Array(384).fill(0.1);
+    const embedding = new Array(EMBEDDING_DIM).fill(0.1);
     insertExchange(db, exchange, embedding);
 
     // Get the last_indexed timestamp
@@ -213,7 +214,7 @@ describe('repairIndex', () => {
       lineEnd: 2
     };
 
-    const embedding = new Array(384).fill(0.1);
+    const embedding = new Array(EMBEDDING_DIM).fill(0.1);
     insertExchange(db, exchange, embedding);
     db.close();
 
@@ -264,7 +265,7 @@ describe('repairIndex', () => {
       lineEnd: 2
     };
 
-    const embedding = new Array(384).fill(0.1);
+    const embedding = new Array(EMBEDDING_DIM).fill(0.1);
     insertExchange(db, exchange, embedding);
 
     // Get the last_indexed timestamp

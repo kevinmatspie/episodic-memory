@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import * as sqliteVec from 'sqlite-vec';
 import { getDbPath } from './paths.js';
+import { EMBEDDING_DIM } from './constants.js';
 export function migrateSchema(db) {
     const columns = db.prepare(`SELECT name FROM pragma_table_info('exchanges')`).all();
     const columnNames = new Set(columns.map(c => c.name));
@@ -79,11 +80,26 @@ export function initDatabase() {
       FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
     )
   `);
+    // Migrate vec_exchanges if dimension changed (e.g., model upgrade)
+    const vecTableExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='vec_exchanges'`).get();
+    if (vecTableExists) {
+        try {
+            // Probe with a vector of the expected dimension
+            const testVec = Buffer.from(new Float32Array(EMBEDDING_DIM).buffer);
+            db.prepare(`INSERT INTO vec_exchanges (id, embedding) VALUES ('__dim_probe__', ?)`).run(testVec);
+            db.prepare(`DELETE FROM vec_exchanges WHERE id = '__dim_probe__'`).run();
+        }
+        catch {
+            // Dimension mismatch — drop and recreate
+            console.log(`vec_exchanges dimension changed, rebuilding vector index...`);
+            db.exec(`DROP TABLE vec_exchanges`);
+        }
+    }
     // Create vector search index
     db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS vec_exchanges USING vec0(
       id TEXT PRIMARY KEY,
-      embedding FLOAT[384]
+      embedding FLOAT[${EMBEDDING_DIM}]
     )
   `);
     // Run migrations first

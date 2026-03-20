@@ -47,7 +47,7 @@ export async function searchConversations(
   if (mode === 'vector' || mode === 'both') {
     // Vector similarity search
     await initEmbeddings();
-    const queryEmbedding = await generateEmbedding(query);
+    const queryEmbedding = await generateEmbedding(query, { isQuery: true });
 
     const stmt = db.prepare(`
       SELECT

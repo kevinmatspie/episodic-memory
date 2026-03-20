@@ -69,7 +69,7 @@ Vector embeddings for semantic search (sqlite-vec).
 ```sql
 CREATE VIRTUAL TABLE vec_exchanges USING vec0(
   id TEXT PRIMARY KEY,
-  embedding FLOAT[384]
+  embedding FLOAT[256]
 );
 ```
 

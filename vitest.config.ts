@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/**/*.test.ts'],
-    testTimeout: 30000, // 30 seconds for embedding/indexing tests
+    testTimeout: 90000, // 90 seconds — nomic model is larger than MiniLM, first download takes time
+    hookTimeout: 90000, // beforeEach hooks also need time for model loading + indexing
   },
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initDatabase, migrateSchema, insertExchange } from '../src/db.js';
 import { ConversationExchange } from '../src/types.js';
+import { EMBEDDING_DIM } from '../src/constants.js';
 import { suppressConsole } from './test-utils.js';
 import fs from 'fs';
 import path from 'path';
@@ -99,8 +100,7 @@ describe('insertExchange with last_indexed', () => {
     };
 
     const beforeInsert = Date.now();
-    // Create proper 384-dimensional embedding
-    const embedding = new Array(384).fill(0.1);
+    const embedding = new Array(EMBEDDING_DIM).fill(0.1);
     insertExchange(db, exchange, embedding);
     const afterInsert = Date.now();
 

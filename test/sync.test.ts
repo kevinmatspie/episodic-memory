@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { syncConversations } from '../src/sync.js';
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
+import { EMBEDDING_DIM } from '../src/constants.js';
 
 describe('sync command', () => {
   let testDir: string;
@@ -187,7 +188,7 @@ describe('sync command', () => {
     db.exec(`
       CREATE VIRTUAL TABLE vec_exchanges USING vec0(
         id TEXT PRIMARY KEY,
-        embedding FLOAT[384]
+        embedding FLOAT[${EMBEDDING_DIM}]
       )
     `);
     db.close();

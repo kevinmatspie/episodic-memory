@@ -1,32 +1,59 @@
-import { pipeline, Pipeline, FeatureExtractionPipeline } from '@xenova/transformers';
+import { pipeline, FeatureExtractionPipeline } from '@huggingface/transformers';
+import { EMBEDDING_DIM, EMBEDDING_MODEL } from './constants.js';
 
 let embeddingPipeline: FeatureExtractionPipeline | null = null;
 
 export async function initEmbeddings(): Promise<void> {
   if (!embeddingPipeline) {
     console.log('Loading embedding model (first run may take time)...');
+    // @ts-expect-error — pipeline() overloads produce a union too complex for TS
     embeddingPipeline = await pipeline(
       'feature-extraction',
-      'Xenova/all-MiniLM-L6-v2'
+      EMBEDDING_MODEL,
+      { dtype: 'q8' }
     );
     console.log('Embedding model loaded');
   }
 }
 
-export async function generateEmbedding(text: string): Promise<number[]> {
+export interface EmbeddingOptions {
+  isQuery?: boolean;
+}
+
+export async function generateEmbedding(
+  text: string,
+  options: EmbeddingOptions = {}
+): Promise<number[]> {
   if (!embeddingPipeline) {
     await initEmbeddings();
   }
 
-  // Truncate text to avoid token limits (512 tokens max for this model)
-  const truncated = text.substring(0, 2000);
+  // Add task prefix required by nomic-embed-text-v1.5
+  const prefix = options.isQuery ? 'search_query: ' : 'search_document: ';
 
-  const output = await embeddingPipeline!(truncated, {
+  // Truncate text to stay within token budget (nomic supports 8192 tokens)
+  const truncated = text.substring(0, 8000);
+  const prefixed = prefix + truncated;
+
+  const output = await embeddingPipeline!(prefixed, {
     pooling: 'mean',
     normalize: true
   });
 
-  return Array.from(output.data);
+  // Matryoshka truncation: slice to target dimension and re-normalize
+  const fullEmbedding = Array.from(output.data as Float32Array);
+  const truncatedEmbedding = fullEmbedding.slice(0, EMBEDDING_DIM);
+
+  // Re-normalize after truncation (the pipeline normalized the full 768-dim vector,
+  // but slicing breaks unit length — cosine similarity requires re-normalization)
+  const norm = Math.sqrt(truncatedEmbedding.reduce((sum, x) => sum + x * x, 0));
+  if (norm > 0) {
+    for (let i = 0; i < truncatedEmbedding.length; i++) {
+      truncatedEmbedding[i] /= norm;
+    }
+  }
+
+  return truncatedEmbedding;
 }
 
 export async function generateExchangeEmbedding(
