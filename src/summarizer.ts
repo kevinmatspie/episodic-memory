@@ -88,6 +88,21 @@ export async function callOllama(prompt: string): Promise<string> {
   return extractSummary(content);
 }
 
+export function getSummarizerProvider(): 'claude' | 'ollama' {
+  const provider = process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER || 'claude';
+  if (provider !== 'claude' && provider !== 'ollama') {
+    throw new Error(`Unknown summarizer provider: "${provider}". Use "claude" or "ollama".`);
+  }
+  return provider;
+}
+
+async function callLLM(prompt: string, sessionId?: string, useFallback?: boolean): Promise<string> {
+  if (getSummarizerProvider() === 'ollama') {
+    return callOllama(prompt);
+  }
+  return callClaude(prompt, sessionId, useFallback);
+}
+
 async function callClaude(prompt: string, sessionId?: string, useFallback = false): Promise<string> {
   const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
@@ -177,7 +192,7 @@ Bad:
 
 ${conversationText}`;
 
-    const result = await callClaude(prompt, sessionId);
+    const result = await callLLM(prompt, sessionId);
     return extractSummary(result);
   }
 
@@ -204,7 +219,7 @@ ${chunkText}
 Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetooth controller initialization error, fixed by adjusting memory allocation.</summary>`;
 
     try {
-      const summary = await callClaude(prompt); // No sessionId for chunks
+      const summary = await callLLM(prompt); // No sessionId for chunks
       const extracted = extractSummary(summary);
       chunkSummaries.push(extracted);
       console.log(`  Chunk ${i + 1}/${chunks.length}: ${extracted.split(/\s+/).length} words`);
@@ -235,7 +250,7 @@ Your summary (max 200 words):`;
 
   console.log(`  Synthesizing final summary...`);
   try {
-    const result = await callClaude(synthesisPrompt); // No sessionId for synthesis
+    const result = await callLLM(synthesisPrompt); // No sessionId for synthesis
     return extractSummary(result);
   } catch (error) {
     console.log(`  Synthesis failed, using chunk summaries`);

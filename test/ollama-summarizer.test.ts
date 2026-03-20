@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { callOllama } from '../src/summarizer.js';
+import { callOllama, getSummarizerProvider } from '../src/summarizer.js';
 
 describe('Ollama summarization', () => {
   afterEach(() => {
@@ -72,5 +72,26 @@ describe('Ollama summarization', () => {
     } as Response);
 
     await expect(callOllama('test')).rejects.toThrow(/Ollama error 500/);
+  });
+});
+
+describe('Provider dispatch', () => {
+  afterEach(() => {
+    delete process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER;
+  });
+
+  it('should default to claude provider when env var is not set', () => {
+    delete process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER;
+    expect(getSummarizerProvider()).toBe('claude');
+  });
+
+  it('should return ollama when configured', () => {
+    process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER = 'ollama';
+    expect(getSummarizerProvider()).toBe('ollama');
+  });
+
+  it('should throw on unknown provider', () => {
+    process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER = 'unknown';
+    expect(() => getSummarizerProvider()).toThrow(/Unknown summarizer provider/);
   });
 });
