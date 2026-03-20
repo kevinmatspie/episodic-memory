@@ -39,6 +39,57 @@ function extractSummary(text) {
     // Fallback if no tags found
     return text.trim();
 }
+function getOllamaConfig() {
+    return {
+        baseUrl: process.env.EPISODIC_MEMORY_OLLAMA_BASE_URL || 'http://localhost:11434',
+        model: process.env.EPISODIC_MEMORY_OLLAMA_MODEL || 'llama3.1:8b',
+    };
+}
+export async function callOllama(prompt) {
+    const { baseUrl, model } = getOllamaConfig();
+    const url = `${baseUrl}/v1/chat/completions`;
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+                    },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.3,
+            }),
+        });
+    }
+    catch (error) {
+        throw new Error(`Ollama not reachable at ${baseUrl} — is it running? (${error})`);
+    }
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Ollama error ${response.status}: ${body}`);
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    return extractSummary(content);
+}
+export function getSummarizerProvider() {
+    const provider = process.env.EPISODIC_MEMORY_SUMMARIZER_PROVIDER || 'claude';
+    if (provider !== 'claude' && provider !== 'ollama') {
+        throw new Error(`Unknown summarizer provider: "${provider}". Use "claude" or "ollama".`);
+    }
+    return provider;
+}
+async function callLLM(prompt, sessionId, useFallback) {
+    if (getSummarizerProvider() === 'ollama') {
+        return callOllama(prompt);
+    }
+    return callClaude(prompt, sessionId, useFallback);
+}
 async function callClaude(prompt, sessionId, useFallback = false) {
     const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
     const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
@@ -119,7 +170,7 @@ Bad:
 <summary>I apologize. The conversation discussed authentication and various approaches were considered...</summary>
 
 ${conversationText}`;
-        const result = await callClaude(prompt, sessionId);
+        const result = await callLLM(prompt, sessionId);
         return extractSummary(result);
     }
     // For long conversations, use hierarchical summarization
@@ -141,7 +192,7 @@ ${chunkText}
 
 Example: <summary>Implemented HID keyboard functionality for ESP32. Hit Bluetooth controller initialization error, fixed by adjusting memory allocation.</summary>`;
         try {
-            const summary = await callClaude(prompt); // No sessionId for chunks
+            const summary = await callLLM(prompt); // No sessionId for chunks
             const extracted = extractSummary(summary);
             chunkSummaries.push(extracted);
             console.log(`  Chunk ${i + 1}/${chunks.length}: ${extracted.split(/\s+/).length} words`);
@@ -170,7 +221,7 @@ Bad:
 Your summary (max 200 words):`;
     console.log(`  Synthesizing final summary...`);
     try {
-        const result = await callClaude(synthesisPrompt); // No sessionId for synthesis
+        const result = await callLLM(synthesisPrompt); // No sessionId for synthesis
         return extractSummary(result);
     }
     catch (error) {
