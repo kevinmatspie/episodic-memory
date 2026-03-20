@@ -46,6 +46,48 @@ function extractSummary(text: string): string {
   return text.trim();
 }
 
+function getOllamaConfig() {
+  return {
+    baseUrl: process.env.EPISODIC_MEMORY_OLLAMA_BASE_URL || 'http://localhost:11434',
+    model: process.env.EPISODIC_MEMORY_OLLAMA_MODEL || 'llama3.1:8b',
+  };
+}
+
+export async function callOllama(prompt: string): Promise<string> {
+  const { baseUrl, model } = getOllamaConfig();
+  const url = `${baseUrl}/v1/chat/completions`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'Write concise, factual summaries. Output ONLY the summary - no preamble, no "Here is", no "I will". Your output will be indexed directly.'
+          },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+      }),
+    });
+  } catch (error) {
+    throw new Error(`Ollama not reachable at ${baseUrl} — is it running? (${error})`);
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Ollama error ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  return extractSummary(content);
+}
+
 async function callClaude(prompt: string, sessionId?: string, useFallback = false): Promise<string> {
   const primaryModel = process.env.EPISODIC_MEMORY_API_MODEL || 'haiku';
   const fallbackModel = process.env.EPISODIC_MEMORY_API_MODEL_FALLBACK || 'sonnet';
