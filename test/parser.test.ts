@@ -169,7 +169,7 @@ describe('Parser - Real Conversation Data', () => {
 
       // Any results over 2000 chars should be truncated
       for (const tc of withResults) {
-        expect(tc.toolResult!.length).toBeLessThanOrEqual(2015); // 2000 + '...(truncated)'.length
+        expect(tc.toolResult!.length).toBeLessThanOrEqual(2014); // 2000 + '...(truncated)'.length
       }
     });
 
