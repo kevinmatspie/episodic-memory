@@ -284,9 +284,9 @@ export async function searchMultipleConcepts(
     return [];
   }
 
-  // Search for each concept independently
+  // Search for each concept independently using both vector and text search
   const conceptResults = await Promise.all(
-    concepts.map(concept => searchConversations(concept, { ...options, limit: limit * 5, mode: 'vector' }))
+    concepts.map(concept => searchConversations(concept, { ...options, limit: limit * 5, mode: 'both' }))
   );
 
   // Build map of conversation path -> array of results (one per concept)
@@ -312,7 +312,7 @@ export async function searchMultipleConcepts(
       // All concepts found in this conversation
       const conceptSimilarities = concepts.map((_concept, index) => {
         const result = results.find(r => r.conceptIndex === index);
-        return result?.similarity || 0;
+        return result?.similarity ?? 0;
       });
 
       const averageSimilarity = conceptSimilarities.reduce((sum, sim) => sum + sim, 0) / conceptSimilarities.length;

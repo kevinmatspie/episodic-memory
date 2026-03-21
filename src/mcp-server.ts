@@ -64,10 +64,6 @@ const SearchInputSchema = z
     response_format: ResponseFormatEnum.default('markdown').describe(
       'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
     ),
-    include_summary: z
-      .boolean()
-      .default(true)
-      .describe('Include conversation summary in results (default: true). Set to false to reduce output size.'),
   })
   .strict();
 
@@ -141,7 +137,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             after: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             before: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             response_format: { type: 'string', enum: ['markdown', 'json'], default: 'markdown' },
-            include_summary: { type: 'boolean', default: true },
           },
           required: ['query'],
           additionalProperties: false,

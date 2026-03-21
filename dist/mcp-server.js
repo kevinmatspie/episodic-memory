@@ -18382,7 +18382,7 @@ async function searchMultipleConcepts(concepts, options = {}) {
     return [];
   }
   const conceptResults = await Promise.all(
-    concepts.map((concept) => searchConversations(concept, { ...options, limit: limit * 5, mode: "vector" }))
+    concepts.map((concept) => searchConversations(concept, { ...options, limit: limit * 5, mode: "both" }))
   );
   const conversationMap = /* @__PURE__ */ new Map();
   conceptResults.forEach((results, conceptIndex) => {
@@ -18400,7 +18400,7 @@ async function searchMultipleConcepts(concepts, options = {}) {
     if (representedConcepts.size === concepts.length) {
       const conceptSimilarities = concepts.map((_concept, index) => {
         const result = results.find((r) => r.conceptIndex === index);
-        return result?.similarity || 0;
+        return result?.similarity ?? 0;
       });
       const averageSimilarity = conceptSimilarities.reduce((sum, sim) => sum + sim, 0) / conceptSimilarities.length;
       const firstResult = results[0];
@@ -19831,8 +19831,7 @@ var SearchInputSchema = external_exports.object({
   before: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations before this date (YYYY-MM-DD format)"),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
-  ),
-  include_summary: external_exports.boolean().default(true).describe("Include conversation summary in results (default: true). Set to false to reduce output size.")
+  )
 }).strict();
 var ShowConversationInputSchema = external_exports.object({
   path: external_exports.string().min(1, "Path is required").describe("Absolute path to the JSONL conversation file to display"),
@@ -19875,8 +19874,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             limit: { type: "number", minimum: 1, maximum: 50, default: 10 },
             after: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             before: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-            response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" },
-            include_summary: { type: "boolean", default: true }
+            response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
           },
           required: ["query"],
           additionalProperties: false
