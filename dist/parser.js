@@ -8,7 +8,10 @@ export async function parseConversation(filePath, projectName, archivePath) {
         input: fileStream,
         crlfDelay: Infinity
     });
+    const MAX_TOOL_RESULT_LENGTH = 2000;
     let lineNumber = 0;
+    // Maps Claude API tool_use_id to index in currentExchange.toolCalls
+    let pendingToolUses = new Map();
     let currentExchange = null;
     const finalizeExchange = () => {
         if (currentExchange && currentExchange.assistantMessages.length > 0) {
@@ -67,7 +70,7 @@ export async function parseConversation(filePath, projectName, archivePath) {
                     .filter(block => block.type === 'text' && block.text)
                     .map(block => block.text);
                 text = textBlocks.join('\n');
-                // Extract tool use blocks
+                // Extract tool use blocks (assistant messages)
                 if (parsed.message.role === 'assistant') {
                     for (const block of parsed.message.content) {
                         if (block.type === 'tool_use') {
@@ -78,18 +81,36 @@ export async function parseConversation(filePath, projectName, archivePath) {
                                 toolName: block.name || 'unknown',
                                 toolInput: block.input,
                                 isError: false,
-                                timestamp: parsed.timestamp || new Date().toISOString()
+                                timestamp: parsed.timestamp || new Date().toISOString(),
+                                _toolUseId: block.id // Transient: for matching with tool_result
                             });
                         }
                     }
                 }
-                // Extract tool results
-                if (parsed.message.role === 'user') {
+                // Match tool results to their tool_use blocks (user messages)
+                if (parsed.message.role === 'user' && currentExchange) {
                     for (const block of parsed.message.content) {
-                        if (block.type === 'tool_result') {
-                            // Store for later association with tool_use
-                            // For now, we'll just track results exist
-                            // TODO: Match tool_use_id to previous tool_use
+                        if (block.type === 'tool_result' && block.tool_use_id) {
+                            const toolCallIndex = pendingToolUses.get(block.tool_use_id);
+                            if (toolCallIndex !== undefined) {
+                                const toolCall = currentExchange.toolCalls[toolCallIndex];
+                                // Extract result text from string or array content
+                                let resultText = '';
+                                if (typeof block.content === 'string') {
+                                    resultText = block.content;
+                                }
+                                else if (Array.isArray(block.content)) {
+                                    resultText = block.content
+                                        .filter((c) => c.type === 'text' && c.text)
+                                        .map((c) => c.text)
+                                        .join('\n');
+                                }
+                                // Truncate large results
+                                toolCall.toolResult = resultText.length > MAX_TOOL_RESULT_LENGTH
+                                    ? resultText.substring(0, MAX_TOOL_RESULT_LENGTH) + '...(truncated)'
+                                    : resultText;
+                                toolCall.isError = block.is_error === true;
+                            }
                         }
                     }
                 }
@@ -101,6 +122,7 @@ export async function parseConversation(filePath, projectName, archivePath) {
             if (parsed.message.role === 'user') {
                 // Finalize previous exchange before starting new one
                 finalizeExchange();
+                pendingToolUses = new Map();
                 // Start new exchange
                 currentExchange = {
                     userMessage: text || '(tool results only)',
@@ -126,9 +148,16 @@ export async function parseConversation(filePath, projectName, archivePath) {
                     currentExchange.assistantMessages.push(text);
                 }
                 currentExchange.lastAssistantLine = lineNumber;
-                // Add tool calls to current exchange
+                // Add tool calls to current exchange and record pending mappings
                 if (toolCalls.length > 0) {
-                    currentExchange.toolCalls.push(...toolCalls);
+                    for (const tc of toolCalls) {
+                        const tcWithId = tc;
+                        if (tcWithId._toolUseId) {
+                            pendingToolUses.set(tcWithId._toolUseId, currentExchange.toolCalls.length);
+                            delete tcWithId._toolUseId;
+                        }
+                        currentExchange.toolCalls.push(tc);
+                    }
                 }
                 // Update timestamp to last assistant message
                 if (parsed.timestamp) {

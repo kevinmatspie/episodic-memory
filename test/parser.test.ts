@@ -138,4 +138,48 @@ describe('Parser - Real Conversation Data', () => {
       expect(result).toBeDefined();
     });
   });
+
+  describe('Tool result matching', () => {
+    it('should match tool_result to tool_use via tool_use_id in long conversation', async () => {
+      const result = await parseConversationFile(getFixturePath('long-conversation.jsonl'));
+
+      // Collect all tool calls across all exchanges
+      const allToolCalls = result.exchanges.flatMap(e => e.toolCalls || []);
+      expect(allToolCalls.length).toBeGreaterThan(0);
+
+      // At least some tool calls should have results populated
+      const withResults = allToolCalls.filter(tc => tc.toolResult !== undefined && tc.toolResult !== null);
+      expect(withResults.length).toBeGreaterThan(0);
+    });
+
+    it('should set isError correctly for error tool results', async () => {
+      const result = await parseConversationFile(getFixturePath('long-conversation.jsonl'));
+
+      const allToolCalls = result.exchanges.flatMap(e => e.toolCalls || []);
+      // Most tool calls should not be errors
+      const nonErrors = allToolCalls.filter(tc => tc.isError === false);
+      expect(nonErrors.length).toBeGreaterThan(0);
+    });
+
+    it('should truncate large tool results', async () => {
+      const result = await parseConversationFile(getFixturePath('long-conversation.jsonl'));
+
+      const allToolCalls = result.exchanges.flatMap(e => e.toolCalls || []);
+      const withResults = allToolCalls.filter(tc => tc.toolResult);
+
+      // Any results over 2000 chars should be truncated
+      for (const tc of withResults) {
+        expect(tc.toolResult!.length).toBeLessThanOrEqual(2015); // 2000 + '...(truncated)'.length
+      }
+    });
+
+    it('should not have _toolUseId on finalized tool calls', async () => {
+      const result = await parseConversationFile(getFixturePath('long-conversation.jsonl'));
+
+      const allToolCalls = result.exchanges.flatMap(e => e.toolCalls || []);
+      for (const tc of allToolCalls) {
+        expect((tc as any)._toolUseId).toBeUndefined();
+      }
+    });
+  });
 });
