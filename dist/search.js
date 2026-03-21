@@ -207,8 +207,8 @@ export async function formatResults(results) {
             output += ` - ${simPct}% match`;
         }
         output += '\n';
-        // Show summary only if it's concise (< 300 chars)
-        if (result.summary && result.summary.length < 300) {
+        // Show summary if available
+        if (result.summary) {
             output += `   ${result.summary}\n`;
         }
         // Show snippet

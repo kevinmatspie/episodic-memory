@@ -64,6 +64,10 @@ const SearchInputSchema = z
     response_format: ResponseFormatEnum.default('markdown').describe(
       'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
     ),
+    include_summary: z
+      .boolean()
+      .default(true)
+      .describe('Include conversation summary in results (default: true). Set to false to reduce output size.'),
   })
   .strict();
 
@@ -122,7 +126,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'search',
-        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, summaries, snippets, and file paths.`,
         inputSchema: {
           type: 'object',
           properties: {
@@ -137,6 +141,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             after: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             before: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             response_format: { type: 'string', enum: ['markdown', 'json'], default: 'markdown' },
+            include_summary: { type: 'boolean', default: true },
           },
           required: ['query'],
           additionalProperties: false,

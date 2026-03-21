@@ -18352,7 +18352,7 @@ async function formatResults(results) {
       output += ` - ${simPct}% match`;
     }
     output += "\n";
-    if (result.summary && result.summary.length < 300) {
+    if (result.summary) {
       output += `   ${result.summary}
 `;
     }
@@ -19831,7 +19831,8 @@ var SearchInputSchema = external_exports.object({
   before: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().describe("Only return conversations before this date (YYYY-MM-DD format)"),
   response_format: ResponseFormatEnum.default("markdown").describe(
     'Output format: "markdown" for human-readable or "json" for machine-readable (default: "markdown")'
-  )
+  ),
+  include_summary: external_exports.boolean().default(true).describe("Include conversation summary in results (default: true). Set to false to reduce output size.")
 }).strict();
 var ShowConversationInputSchema = external_exports.object({
   path: external_exports.string().min(1, "Path is required").describe("Absolute path to the JSONL conversation file to display"),
@@ -19860,7 +19861,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search",
-        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, snippets, and file paths.`,
+        description: `Gives you memory across sessions. You don't automatically remember past conversations - this tool restores context by searching them. Use BEFORE every task to recover decisions, solutions, and avoid reinventing work. Single string for semantic search or array of 2-5 concepts for precise AND matching. Returns ranked results with project, date, summaries, snippets, and file paths.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -19874,7 +19875,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             limit: { type: "number", minimum: 1, maximum: 50, default: 10 },
             after: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             before: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-            response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" }
+            response_format: { type: "string", enum: ["markdown", "json"], default: "markdown" },
+            include_summary: { type: "boolean", default: true }
           },
           required: ["query"],
           additionalProperties: false
