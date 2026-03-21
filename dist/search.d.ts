@@ -6,8 +6,6 @@ export interface SearchOptions {
     before?: string;
 }
 export declare function searchConversations(query: string, options?: SearchOptions): Promise<SearchResult[]>;
-export declare function formatResults(results: Array<SearchResult & {
-    summary?: string;
-}>): Promise<string>;
+export declare function formatResults(results: SearchResult[]): Promise<string>;
 export declare function searchMultipleConcepts(concepts: string[], options?: Omit<SearchOptions, 'mode'>): Promise<MultiConceptResult[]>;
 export declare function formatMultiConceptResults(results: MultiConceptResult[], concepts: string[]): Promise<string>;

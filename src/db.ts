@@ -93,6 +93,15 @@ export function initDatabase(): Database.Database {
     )
   `);
 
+  // Create conversation summaries table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_summaries (
+      archive_path TEXT PRIMARY KEY,
+      summary TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
   // Migrate vec_exchanges if dimension changed (e.g., model upgrade)
   const vecTableExists = db.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name='vec_exchanges'`
@@ -119,8 +128,9 @@ export function initDatabase(): Database.Database {
     )
   `);
 
-  // Run migrations first
+  // Run migrations
   migrateSchema(db);
+  migrateSummariesToDb(db);
 
   // Create indexes (after migrations ensure columns exist)
   db.exec(`
@@ -239,4 +249,69 @@ export function deleteExchange(db: Database.Database, id: string): void {
 
   // Delete from main table
   db.prepare(`DELETE FROM exchanges WHERE id = ?`).run(id);
+}
+
+export function upsertSummary(db: Database.Database, archivePath: string, summary: string): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO conversation_summaries (archive_path, summary, updated_at)
+    VALUES (?, ?, ?)
+  `).run(archivePath, summary, Date.now());
+}
+
+export function getSummary(db: Database.Database, archivePath: string): string | null {
+  const row = db.prepare(
+    `SELECT summary FROM conversation_summaries WHERE archive_path = ?`
+  ).get(archivePath) as { summary: string } | undefined;
+  return row?.summary ?? null;
+}
+
+export function getSummariesBatch(db: Database.Database, archivePaths: string[]): Map<string, string> {
+  const result = new Map<string, string>();
+  if (archivePaths.length === 0) return result;
+
+  const placeholders = archivePaths.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT archive_path, summary FROM conversation_summaries WHERE archive_path IN (${placeholders})`
+  ).all(...archivePaths) as Array<{ archive_path: string; summary: string }>;
+
+  for (const row of rows) {
+    result.set(row.archive_path, row.summary);
+  }
+  return result;
+}
+
+export function migrateSummariesToDb(db: Database.Database): void {
+  const summaryCount = (db.prepare('SELECT COUNT(*) as count FROM conversation_summaries').get() as { count: number }).count;
+  if (summaryCount > 0) return; // Already migrated
+
+  const exchangeCount = (db.prepare('SELECT COUNT(*) as count FROM exchanges').get() as { count: number }).count;
+  if (exchangeCount === 0) return; // Nothing to migrate
+
+  const archivePaths = db.prepare(
+    'SELECT DISTINCT archive_path FROM exchanges'
+  ).all() as Array<{ archive_path: string }>;
+
+  let migrated = 0;
+  const stmt = db.prepare(
+    'INSERT OR IGNORE INTO conversation_summaries (archive_path, summary, updated_at) VALUES (?, ?, ?)'
+  );
+
+  const migrate = db.transaction(() => {
+    for (const { archive_path } of archivePaths) {
+      const summaryPath = archive_path.replace('.jsonl', '-summary.txt');
+      if (fs.existsSync(summaryPath)) {
+        const summary = fs.readFileSync(summaryPath, 'utf-8').trim();
+        if (summary) {
+          stmt.run(archive_path, summary, Date.now());
+          migrated++;
+        }
+      }
+    }
+  });
+
+  migrate();
+
+  if (migrated > 0) {
+    console.log(`Migrated ${migrated} summaries from files to database.`);
+  }
 }

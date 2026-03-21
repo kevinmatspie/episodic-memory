@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { initDatabase, insertExchange } from './db.js';
+import { initDatabase, insertExchange, upsertSummary } from './db.js';
 import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
@@ -94,6 +94,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
                     try {
                         const summary = await summarizeConversation(conv.exchanges);
                         fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
+                        upsertSummary(db, conv.archivePath, summary);
                         const wordCount = summary.split(/\s+/).length;
                         console.log(`  ✓ ${conv.file}: ${wordCount} words`);
                         return summary;
@@ -165,6 +166,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                 if (!noSummaries && !fs.existsSync(summaryPath)) {
                     const summary = await summarizeConversation(exchanges);
                     fs.writeFileSync(summaryPath, summary, 'utf-8');
+                    upsertSummary(db, archivePath, summary);
                     console.log(`Summary: ${summary.split(/\s+/).length} words`);
                 }
                 // Index
@@ -241,6 +243,7 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
                 try {
                     const summary = await summarizeConversation(conv.exchanges);
                     fs.writeFileSync(conv.summaryPath, summary, 'utf-8');
+                    upsertSummary(db, conv.archivePath, summary);
                     const wordCount = summary.split(/\s+/).length;
                     console.log(`  ✓ ${conv.project}/${conv.file}: ${wordCount} words`);
                     return summary;

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { parseConversation } from './parser.js';
-import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
+import { initDatabase, getAllExchanges, getFileLastIndexed, getSummary } from './db.js';
 import { getArchiveDir, getExcludedProjects } from './paths.js';
 
 export interface VerificationResult {
@@ -59,11 +59,11 @@ export async function verifyIndex(): Promise<VerificationResult> {
       const conversationPath = path.join(projectPath, file);
       foundFiles.add(conversationPath);
 
+      // Check for missing summary (DB first, then file fallback)
+      const dbSummary = getSummary(db, conversationPath);
       const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
-
-      // Check for missing summary
-      if (!fs.existsSync(summaryPath)) {
-        result.missing.push({ path: conversationPath, reason: 'No summary file' });
+      if (!dbSummary && !fs.existsSync(summaryPath)) {
+        result.missing.push({ path: conversationPath, reason: 'No summary in DB or file' });
         continue;
       }
 
@@ -114,7 +114,7 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
   console.log('Repairing index...');
 
   // To avoid circular dependencies, we import the indexer functions dynamically
-  const { initDatabase, insertExchange, deleteExchange } = await import('./db.js');
+  const { initDatabase, insertExchange, deleteExchange, upsertSummary } = await import('./db.js');
   const { parseConversation } = await import('./parser.js');
   const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
   const { summarizeConversation } = await import('./summarizer.js');
@@ -154,6 +154,7 @@ export async function repairIndex(issues: VerificationResult): Promise<void> {
       const summaryPath = conversationPath.replace('.jsonl', '-summary.txt');
       const summary = await summarizeConversation(exchanges);
       fs.writeFileSync(summaryPath, summary, 'utf-8');
+      upsertSummary(db, conversationPath, summary);
       console.log(`  Created summary: ${summary.split(/\s+/).length} words`);
 
       // Index exchanges

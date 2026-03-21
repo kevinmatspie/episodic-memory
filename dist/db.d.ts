@@ -9,3 +9,7 @@ export declare function getAllExchanges(db: Database.Database): Array<{
 }>;
 export declare function getFileLastIndexed(db: Database.Database, archivePath: string): number | null;
 export declare function deleteExchange(db: Database.Database, id: string): void;
+export declare function upsertSummary(db: Database.Database, archivePath: string, summary: string): void;
+export declare function getSummary(db: Database.Database, archivePath: string): string | null;
+export declare function getSummariesBatch(db: Database.Database, archivePaths: string[]): Map<string, string>;
+export declare function migrateSummariesToDb(db: Database.Database): void;

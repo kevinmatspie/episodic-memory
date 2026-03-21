@@ -140,6 +140,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
     if (!options.skipSummaries && filesToSummarize.length > 0) {
         const { parseConversation } = await import('./parser.js');
         const { summarizeConversation } = await import('./summarizer.js');
+        const { initDatabase: initDb, upsertSummary: upsert } = await import('./db.js');
         const summaryLimit = options.summaryLimit ?? 10;
         const toSummarize = filesToSummarize.slice(0, summaryLimit);
         const remaining = filesToSummarize.length - toSummarize.length;
@@ -147,20 +148,24 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         if (remaining > 0) {
             console.log(`  (${remaining} more need summaries - will process on next sync)`);
         }
+        const summaryDb = initDb();
         for (const { path: filePath, sessionId } of toSummarize) {
             try {
                 const project = path.basename(path.dirname(filePath));
                 const exchanges = await parseConversation(filePath, project, filePath);
                 if (exchanges.length === 0) {
                     // Write a placeholder summary so this file doesn't block future runs
+                    const placeholderSummary = 'Trivial conversation with no substantive content.';
                     const summaryPath = filePath.replace('.jsonl', '-summary.txt');
-                    fs.writeFileSync(summaryPath, 'Trivial conversation with no substantive content.', 'utf-8');
+                    fs.writeFileSync(summaryPath, placeholderSummary, 'utf-8');
+                    upsert(summaryDb, filePath, placeholderSummary);
                     continue;
                 }
                 console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
                 const summary = await summarizeConversation(exchanges);
                 const summaryPath = filePath.replace('.jsonl', '-summary.txt');
                 fs.writeFileSync(summaryPath, summary, 'utf-8');
+                upsert(summaryDb, filePath, summary);
                 result.summarized++;
             }
             catch (error) {
@@ -170,6 +175,7 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                 });
             }
         }
+        summaryDb.close();
     }
     return result;
 }

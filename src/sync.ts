@@ -182,6 +182,7 @@ export async function syncConversations(
   if (!options.skipSummaries && filesToSummarize.length > 0) {
     const { parseConversation } = await import('./parser.js');
     const { summarizeConversation } = await import('./summarizer.js');
+    const { initDatabase: initDb, upsertSummary: upsert } = await import('./db.js');
 
     const summaryLimit = options.summaryLimit ?? 10;
     const toSummarize = filesToSummarize.slice(0, summaryLimit);
@@ -192,6 +193,8 @@ export async function syncConversations(
       console.log(`  (${remaining} more need summaries - will process on next sync)`);
     }
 
+    const summaryDb = initDb();
+
     for (const { path: filePath, sessionId } of toSummarize) {
       try {
         const project = path.basename(path.dirname(filePath));
@@ -199,8 +202,10 @@ export async function syncConversations(
 
         if (exchanges.length === 0) {
           // Write a placeholder summary so this file doesn't block future runs
+          const placeholderSummary = 'Trivial conversation with no substantive content.';
           const summaryPath = filePath.replace('.jsonl', '-summary.txt');
-          fs.writeFileSync(summaryPath, 'Trivial conversation with no substantive content.', 'utf-8');
+          fs.writeFileSync(summaryPath, placeholderSummary, 'utf-8');
+          upsert(summaryDb, filePath, placeholderSummary);
           continue;
         }
 
@@ -209,6 +214,7 @@ export async function syncConversations(
 
         const summaryPath = filePath.replace('.jsonl', '-summary.txt');
         fs.writeFileSync(summaryPath, summary, 'utf-8');
+        upsert(summaryDb, filePath, summary);
         result.summarized++;
       } catch (error) {
         result.errors.push({
@@ -217,6 +223,8 @@ export async function syncConversations(
         });
       }
     }
+
+    summaryDb.close();
   }
 
   return result;

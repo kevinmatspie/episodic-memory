@@ -80,7 +80,7 @@ describe('verifyIndex', () => {
 
     expect(result.missing.length).toBe(1);
     expect(result.missing[0].path).toBe(conversationPath);
-    expect(result.missing[0].reason).toBe('No summary file');
+    expect(result.missing[0].reason).toBe('No summary in DB or file');
   });
 
   it('detects orphaned database entries', async () => {

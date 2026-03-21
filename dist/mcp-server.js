@@ -18026,6 +18026,13 @@ function initDatabase() {
       FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_summaries (
+      archive_path TEXT PRIMARY KEY,
+      summary TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   const vecTableExists = db.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name='vec_exchanges'`
   ).get();
@@ -18046,6 +18053,7 @@ function initDatabase() {
     )
   `);
   migrateSchema(db);
+  migrateSummariesToDb(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_timestamp ON exchanges(timestamp DESC)
   `);
@@ -18068,6 +18076,47 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
   `);
   return db;
+}
+function getSummariesBatch(db, archivePaths) {
+  const result = /* @__PURE__ */ new Map();
+  if (archivePaths.length === 0) return result;
+  const placeholders = archivePaths.map(() => "?").join(",");
+  const rows = db.prepare(
+    `SELECT archive_path, summary FROM conversation_summaries WHERE archive_path IN (${placeholders})`
+  ).all(...archivePaths);
+  for (const row of rows) {
+    result.set(row.archive_path, row.summary);
+  }
+  return result;
+}
+function migrateSummariesToDb(db) {
+  const summaryCount = db.prepare("SELECT COUNT(*) as count FROM conversation_summaries").get().count;
+  if (summaryCount > 0) return;
+  const exchangeCount = db.prepare("SELECT COUNT(*) as count FROM exchanges").get().count;
+  if (exchangeCount === 0) return;
+  const archivePaths = db.prepare(
+    "SELECT DISTINCT archive_path FROM exchanges"
+  ).all();
+  let migrated = 0;
+  const stmt = db.prepare(
+    "INSERT OR IGNORE INTO conversation_summaries (archive_path, summary, updated_at) VALUES (?, ?, ?)"
+  );
+  const migrate = db.transaction(() => {
+    for (const { archive_path } of archivePaths) {
+      const summaryPath = archive_path.replace(".jsonl", "-summary.txt");
+      if (fs2.existsSync(summaryPath)) {
+        const summary = fs2.readFileSync(summaryPath, "utf-8").trim();
+        if (summary) {
+          stmt.run(archive_path, summary, Date.now());
+          migrated++;
+        }
+      }
+    }
+  });
+  migrate();
+  if (migrated > 0) {
+    console.log(`Migrated ${migrated} summaries from files to database.`);
+  }
 }
 
 // src/embeddings.ts
@@ -18185,6 +18234,8 @@ async function searchConversations(query, options = {}) {
       results = textResults;
     }
   }
+  const archivePaths = results.map((row) => row.archive_path);
+  const summaries = getSummariesBatch(db, archivePaths);
   db.close();
   return results.map((row) => {
     const exchange = {
@@ -18197,11 +18248,7 @@ async function searchConversations(query, options = {}) {
       lineStart: row.line_start,
       lineEnd: row.line_end
     };
-    const summaryPath = row.archive_path.replace(".jsonl", "-summary.txt");
-    let summary;
-    if (fs3.existsSync(summaryPath)) {
-      summary = fs3.readFileSync(summaryPath, "utf-8").trim();
-    }
+    const summary = summaries.get(row.archive_path);
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, " ").trim();
     const snippet = snippetText + (exchange.userMessage.length > 200 ? "..." : "");
     return {

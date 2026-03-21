@@ -30,15 +30,11 @@ export async function getIndexStats(dbPath) {
         }
         // Total conversations
         const totalConversations = db.prepare('SELECT COUNT(DISTINCT archive_path) as count FROM exchanges').get();
-        // Check for summaries (these are files, not DB fields)
-        const fs = await import('fs');
-        const conversationPaths = db.prepare('SELECT DISTINCT archive_path FROM exchanges').all();
+        // Check for summaries in DB
+        const hasSummariesTable = tables.some(t => t.name === 'conversation_summaries');
         let withSummariesCount = 0;
-        for (const { archive_path } of conversationPaths) {
-            const summaryPath = archive_path.replace('.jsonl', '-summary.txt');
-            if (fs.existsSync(summaryPath)) {
-                withSummariesCount++;
-            }
+        if (hasSummariesTable) {
+            withSummariesCount = db.prepare('SELECT COUNT(*) as count FROM conversation_summaries').get().count;
         }
         // Total exchanges
         const totalExchanges = db.prepare('SELECT COUNT(*) as count FROM exchanges').get();

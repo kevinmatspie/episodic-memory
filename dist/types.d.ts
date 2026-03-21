@@ -31,6 +31,7 @@ export interface SearchResult {
     exchange: ConversationExchange;
     similarity: number;
     snippet: string;
+    summary?: string;
 }
 export interface MultiConceptResult {
     exchange: ConversationExchange;

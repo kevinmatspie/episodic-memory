@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { initDatabase } from './db.js';
+import { initDatabase, getSummariesBatch } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import { SearchResult, ConversationExchange, MultiConceptResult } from './types.js';
 import fs from 'fs';
@@ -109,6 +109,10 @@ export async function searchConversations(
     }
   }
 
+  // Batch-fetch summaries from DB before closing
+  const archivePaths = results.map((row: any) => row.archive_path);
+  const summaries = getSummariesBatch(db, archivePaths);
+
   db.close();
 
   return results.map((row: any) => {
@@ -123,12 +127,7 @@ export async function searchConversations(
       lineEnd: row.line_end
     };
 
-    // Try to load summary if available
-    const summaryPath = row.archive_path.replace('.jsonl', '-summary.txt');
-    let summary: string | undefined;
-    if (fs.existsSync(summaryPath)) {
-      summary = fs.readFileSync(summaryPath, 'utf-8').trim();
-    }
+    const summary = summaries.get(row.archive_path);
 
     // Create snippet (first 200 chars, collapse newlines)
     const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, ' ').trim();
@@ -139,7 +138,7 @@ export async function searchConversations(
       similarity: mode === 'text' ? undefined : 1 - row.distance,
       snippet,
       summary
-    } as SearchResult & { summary?: string };
+    } as SearchResult;
   });
 }
 
@@ -172,7 +171,7 @@ function getFileSizeInKB(filePath: string): number {
   }
 }
 
-export async function formatResults(results: Array<SearchResult & { summary?: string }>): Promise<string> {
+export async function formatResults(results: SearchResult[]): Promise<string> {
   if (results.length === 0) {
     return 'No results found.';
   }

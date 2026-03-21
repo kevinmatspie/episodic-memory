@@ -1,4 +1,4 @@
-import { initDatabase } from './db.js';
+import { initDatabase, getSummariesBatch } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import fs from 'fs';
 import readline from 'readline';
@@ -86,6 +86,9 @@ export async function searchConversations(query, options = {}) {
             results = textResults;
         }
     }
+    // Batch-fetch summaries from DB before closing
+    const archivePaths = results.map((row) => row.archive_path);
+    const summaries = getSummariesBatch(db, archivePaths);
     db.close();
     return results.map((row) => {
         const exchange = {
@@ -98,12 +101,7 @@ export async function searchConversations(query, options = {}) {
             lineStart: row.line_start,
             lineEnd: row.line_end
         };
-        // Try to load summary if available
-        const summaryPath = row.archive_path.replace('.jsonl', '-summary.txt');
-        let summary;
-        if (fs.existsSync(summaryPath)) {
-            summary = fs.readFileSync(summaryPath, 'utf-8').trim();
-        }
+        const summary = summaries.get(row.archive_path);
         // Create snippet (first 200 chars, collapse newlines)
         const snippetText = exchange.userMessage.substring(0, 200).replace(/\s+/g, ' ').trim();
         const snippet = snippetText + (exchange.userMessage.length > 200 ? '...' : '');
