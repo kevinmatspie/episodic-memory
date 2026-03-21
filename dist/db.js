@@ -119,10 +119,10 @@ export function initDatabase() {
       tokenize='porter unicode61'
     )
   `);
-    // Run migrations
+    // Run schema migrations
     migrateSchema(db);
-    migrateSummariesToDb(db);
-    migrateFtsIndex(db);
+    // Run data migrations (import existing summaries/FTS from prior data)
+    runDataMigrations(db);
     // Create indexes (after migrations ensure columns exist)
     db.exec(`
     CREATE INDEX IF NOT EXISTS idx_timestamp ON exchanges(timestamp DESC)
@@ -195,6 +195,14 @@ export function getFileLastIndexed(db, archivePath) {
   `);
     const row = stmt.get(archivePath);
     return row.lastIndexed;
+}
+/**
+ * Run data migrations that depend on existing exchanges.
+ * Safe to call multiple times — each migration is idempotent.
+ */
+export function runDataMigrations(db) {
+    migrateSummariesToDb(db);
+    migrateFtsIndex(db);
 }
 export function deleteExchange(db, id) {
     // Delete from vector table

@@ -18061,8 +18061,7 @@ function initDatabase() {
     )
   `);
   migrateSchema(db);
-  migrateSummariesToDb(db);
-  migrateFtsIndex(db);
+  runDataMigrations(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_timestamp ON exchanges(timestamp DESC)
   `);
@@ -18085,6 +18084,10 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tool_exchange ON tool_calls(exchange_id)
   `);
   return db;
+}
+function runDataMigrations(db) {
+  migrateSummariesToDb(db);
+  migrateFtsIndex(db);
 }
 function getSummariesBatch(db, archivePaths) {
   const result = /* @__PURE__ */ new Map();

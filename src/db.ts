@@ -138,10 +138,11 @@ export function initDatabase(): Database.Database {
     )
   `);
 
-  // Run migrations
+  // Run schema migrations
   migrateSchema(db);
-  migrateSummariesToDb(db);
-  migrateFtsIndex(db);
+
+  // Run data migrations (import existing summaries/FTS from prior data)
+  runDataMigrations(db);
 
   // Create indexes (after migrations ensure columns exist)
   db.exec(`
@@ -259,6 +260,15 @@ export function getFileLastIndexed(db: Database.Database, archivePath: string): 
   `);
   const row = stmt.get(archivePath) as { lastIndexed: number | null };
   return row.lastIndexed;
+}
+
+/**
+ * Run data migrations that depend on existing exchanges.
+ * Safe to call multiple times — each migration is idempotent.
+ */
+export function runDataMigrations(db: Database.Database): void {
+  migrateSummariesToDb(db);
+  migrateFtsIndex(db);
 }
 
 export function deleteExchange(db: Database.Database, id: string): void {

@@ -8,6 +8,11 @@ export declare function getAllExchanges(db: Database.Database): Array<{
     archivePath: string;
 }>;
 export declare function getFileLastIndexed(db: Database.Database, archivePath: string): number | null;
+/**
+ * Run data migrations that depend on existing exchanges.
+ * Safe to call multiple times — each migration is idempotent.
+ */
+export declare function runDataMigrations(db: Database.Database): void;
 export declare function deleteExchange(db: Database.Database, id: string): void;
 export declare function upsertSummary(db: Database.Database, archivePath: string, summary: string): void;
 export declare function getSummary(db: Database.Database, archivePath: string): string | null;

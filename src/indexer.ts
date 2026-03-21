@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { initDatabase, insertExchange, upsertSummary } from './db.js';
+import { initDatabase, insertExchange, upsertSummary, runDataMigrations } from './db.js';
 import { parseConversation } from './parser.js';
 import { initEmbeddings, generateExchangeEmbedding } from './embeddings.js';
 import { summarizeConversation } from './summarizer.js';
@@ -170,6 +170,7 @@ export async function indexConversations(
       // Check if we hit the limit
       if (maxConversations && conversationsProcessed >= maxConversations) {
         console.log(`\nReached limit of ${maxConversations} conversations`);
+        runDataMigrations(db);
         db.close();
         console.log(`✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
         return;
@@ -177,6 +178,7 @@ export async function indexConversations(
     }
   }
 
+  runDataMigrations(db);
   db.close();
   console.log(`\n✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
 }
@@ -244,6 +246,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
         console.log(`✅ Indexed session ${sessionId}: ${exchanges.length} exchanges`);
       }
 
+      runDataMigrations(db);
       db.close();
       break;
     }
@@ -316,6 +319,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
   if (unprocessed.length === 0) {
     console.log('✅ All conversations are already processed!');
+    runDataMigrations(db);
     db.close();
     return;
   }
@@ -360,6 +364,7 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
     }
   }
 
+  runDataMigrations(db);
   db.close();
   console.log(`\n✅ Processed ${unprocessed.length} conversations`);
 }
