@@ -13,3 +13,4 @@ export declare function upsertSummary(db: Database.Database, archivePath: string
 export declare function getSummary(db: Database.Database, archivePath: string): string | null;
 export declare function getSummariesBatch(db: Database.Database, archivePaths: string[]): Map<string, string>;
 export declare function migrateSummariesToDb(db: Database.Database): void;
+export declare function migrateFtsIndex(db: Database.Database): void;

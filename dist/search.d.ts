@@ -1,4 +1,5 @@
 import { SearchResult, MultiConceptResult } from './types.js';
+export declare function sanitizeFtsQuery(query: string): string;
 export interface SearchOptions {
     limit?: number;
     mode?: 'vector' | 'text' | 'both';

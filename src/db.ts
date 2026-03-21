@@ -128,9 +128,20 @@ export function initDatabase(): Database.Database {
     )
   `);
 
+  // Create FTS5 full-text search index
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS fts_exchanges USING fts5(
+      content_id UNINDEXED,
+      user_message,
+      assistant_message,
+      tokenize='porter unicode61'
+    )
+  `);
+
   // Run migrations
   migrateSchema(db);
   migrateSummariesToDb(db);
+  migrateFtsIndex(db);
 
   // Create indexes (after migrations ensure columns exist)
   db.exec(`
@@ -206,6 +217,13 @@ export function insertExchange(
 
   vecStmt.run(exchange.id, Buffer.from(new Float32Array(embedding).buffer));
 
+  // Insert into FTS5 index (delete first, then insert)
+  db.prepare(`DELETE FROM fts_exchanges WHERE content_id = ?`).run(exchange.id);
+  db.prepare(`
+    INSERT INTO fts_exchanges (content_id, user_message, assistant_message)
+    VALUES (?, ?, ?)
+  `).run(exchange.id, exchange.userMessage, exchange.assistantMessage);
+
   // Insert tool calls if present
   if (exchange.toolCalls && exchange.toolCalls.length > 0) {
     const toolStmt = db.prepare(`
@@ -246,6 +264,9 @@ export function getFileLastIndexed(db: Database.Database, archivePath: string): 
 export function deleteExchange(db: Database.Database, id: string): void {
   // Delete from vector table
   db.prepare(`DELETE FROM vec_exchanges WHERE id = ?`).run(id);
+
+  // Delete from FTS5 index
+  db.prepare(`DELETE FROM fts_exchanges WHERE content_id = ?`).run(id);
 
   // Delete from main table
   db.prepare(`DELETE FROM exchanges WHERE id = ?`).run(id);
@@ -314,4 +335,19 @@ export function migrateSummariesToDb(db: Database.Database): void {
   if (migrated > 0) {
     console.log(`Migrated ${migrated} summaries from files to database.`);
   }
+}
+
+export function migrateFtsIndex(db: Database.Database): void {
+  const ftsCount = (db.prepare('SELECT COUNT(*) as count FROM fts_exchanges').get() as { count: number }).count;
+  if (ftsCount > 0) return; // Already populated
+
+  const exchangeCount = (db.prepare('SELECT COUNT(*) as count FROM exchanges').get() as { count: number }).count;
+  if (exchangeCount === 0) return; // Nothing to populate
+
+  console.log('Populating FTS5 index from existing exchanges...');
+  db.exec(`
+    INSERT INTO fts_exchanges (content_id, user_message, assistant_message)
+    SELECT id, user_message, assistant_message FROM exchanges
+  `);
+  console.log(`FTS5 index populated with ${exchangeCount} entries.`);
 }

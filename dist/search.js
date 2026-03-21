@@ -2,6 +2,28 @@ import { initDatabase, getSummariesBatch } from './db.js';
 import { initEmbeddings, generateEmbedding } from './embeddings.js';
 import fs from 'fs';
 import readline from 'readline';
+// Sanitize user input for FTS5 MATCH queries
+export function sanitizeFtsQuery(query) {
+    // Remove FTS5 special characters that could cause syntax errors
+    let sanitized = query
+        .replace(/"/g, '') // Remove quotes
+        .replace(/\*/g, '') // Remove wildcards
+        .replace(/\(/g, '') // Remove parens
+        .replace(/\)/g, '')
+        .replace(/\^/g, '') // Remove boost operator
+        .replace(/\+/g, ' ') // Replace required operator with space
+        .replace(/:/g, ' ') // Replace column prefix operator with space
+        .trim();
+    // Remove FTS5 boolean operators when they appear as standalone words
+    sanitized = sanitized.replace(/\b(AND|OR|NOT|NEAR)\b/g, '');
+    // Collapse multiple spaces
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
+    if (!sanitized)
+        return '""';
+    // Wrap each word in quotes to prevent operator interpretation
+    const words = sanitized.split(' ').filter(w => w.length > 0);
+    return words.map(w => `"${w}"`).join(' ');
+}
 function validateISODate(dateStr, paramName) {
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!isoDateRegex.test(dateStr)) {
@@ -54,25 +76,52 @@ export async function searchConversations(query, options = {}) {
         results = stmt.all(Buffer.from(new Float32Array(queryEmbedding).buffer), limit);
     }
     if (mode === 'text' || mode === 'both') {
-        // Text search
-        const textStmt = db.prepare(`
-      SELECT
-        e.id,
-        e.project,
-        e.timestamp,
-        e.user_message,
-        e.assistant_message,
-        e.archive_path,
-        e.line_start,
-        e.line_end,
-        0 as distance
-      FROM exchanges AS e
-      WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        ${timeClause}
-      ORDER BY e.timestamp DESC
-      LIMIT ?
-    `);
-        const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit);
+        // FTS5 full-text search with LIKE fallback
+        let textResults;
+        try {
+            // Escape FTS5 special characters and wrap in quotes for phrase matching
+            const ftsQuery = sanitizeFtsQuery(query);
+            const ftsStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          fts.rank as distance
+        FROM fts_exchanges AS fts
+        JOIN exchanges AS e ON fts.content_id = e.id
+        WHERE fts_exchanges MATCH ?
+          ${timeClause}
+        ORDER BY fts.rank
+        LIMIT ?
+      `);
+            textResults = ftsStmt.all(ftsQuery, limit);
+        }
+        catch {
+            // Fallback to LIKE if FTS5 query fails
+            const likeStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          0 as distance
+        FROM exchanges AS e
+        WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+          ${timeClause}
+        ORDER BY e.timestamp DESC
+        LIMIT ?
+      `);
+            textResults = likeStmt.all(`%${query}%`, `%${query}%`, limit);
+        }
         if (mode === 'both') {
             // Merge and deduplicate by ID
             const seenIds = new Set(results.map(r => r.id));

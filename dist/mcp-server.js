@@ -18052,8 +18052,17 @@ function initDatabase() {
       embedding FLOAT[${EMBEDDING_DIM}]
     )
   `);
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS fts_exchanges USING fts5(
+      content_id UNINDEXED,
+      user_message,
+      assistant_message,
+      tokenize='porter unicode61'
+    )
+  `);
   migrateSchema(db);
   migrateSummariesToDb(db);
+  migrateFtsIndex(db);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_timestamp ON exchanges(timestamp DESC)
   `);
@@ -18118,6 +18127,18 @@ function migrateSummariesToDb(db) {
     console.log(`Migrated ${migrated} summaries from files to database.`);
   }
 }
+function migrateFtsIndex(db) {
+  const ftsCount = db.prepare("SELECT COUNT(*) as count FROM fts_exchanges").get().count;
+  if (ftsCount > 0) return;
+  const exchangeCount = db.prepare("SELECT COUNT(*) as count FROM exchanges").get().count;
+  if (exchangeCount === 0) return;
+  console.log("Populating FTS5 index from existing exchanges...");
+  db.exec(`
+    INSERT INTO fts_exchanges (content_id, user_message, assistant_message)
+    SELECT id, user_message, assistant_message FROM exchanges
+  `);
+  console.log(`FTS5 index populated with ${exchangeCount} entries.`);
+}
 
 // src/embeddings.ts
 import { pipeline } from "@huggingface/transformers";
@@ -18158,6 +18179,14 @@ async function generateEmbedding(text, options = {}) {
 // src/search.ts
 import fs3 from "fs";
 import readline from "readline";
+function sanitizeFtsQuery(query) {
+  let sanitized = query.replace(/"/g, "").replace(/\*/g, "").replace(/\(/g, "").replace(/\)/g, "").replace(/\^/g, "").replace(/\+/g, " ").replace(/:/g, " ").trim();
+  sanitized = sanitized.replace(/\b(AND|OR|NOT|NEAR)\b/g, "");
+  sanitized = sanitized.replace(/\s+/g, " ").trim();
+  if (!sanitized) return '""';
+  const words = sanitized.split(" ").filter((w2) => w2.length > 0);
+  return words.map((w2) => `"${w2}"`).join(" ");
+}
 function validateISODate(dateStr, paramName) {
   const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDateRegex.test(dateStr)) {
@@ -18205,24 +18234,48 @@ async function searchConversations(query, options = {}) {
     );
   }
   if (mode === "text" || mode === "both") {
-    const textStmt = db.prepare(`
-      SELECT
-        e.id,
-        e.project,
-        e.timestamp,
-        e.user_message,
-        e.assistant_message,
-        e.archive_path,
-        e.line_start,
-        e.line_end,
-        0 as distance
-      FROM exchanges AS e
-      WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
-        ${timeClause}
-      ORDER BY e.timestamp DESC
-      LIMIT ?
-    `);
-    const textResults = textStmt.all(`%${query}%`, `%${query}%`, limit);
+    let textResults;
+    try {
+      const ftsQuery = sanitizeFtsQuery(query);
+      const ftsStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          fts.rank as distance
+        FROM fts_exchanges AS fts
+        JOIN exchanges AS e ON fts.content_id = e.id
+        WHERE fts_exchanges MATCH ?
+          ${timeClause}
+        ORDER BY fts.rank
+        LIMIT ?
+      `);
+      textResults = ftsStmt.all(ftsQuery, limit);
+    } catch {
+      const likeStmt = db.prepare(`
+        SELECT
+          e.id,
+          e.project,
+          e.timestamp,
+          e.user_message,
+          e.assistant_message,
+          e.archive_path,
+          e.line_start,
+          e.line_end,
+          0 as distance
+        FROM exchanges AS e
+        WHERE (e.user_message LIKE ? OR e.assistant_message LIKE ?)
+          ${timeClause}
+        ORDER BY e.timestamp DESC
+        LIMIT ?
+      `);
+      textResults = likeStmt.all(`%${query}%`, `%${query}%`, limit);
+    }
     if (mode === "both") {
       const seenIds = new Set(results.map((r) => r.id));
       for (const textResult of textResults) {
