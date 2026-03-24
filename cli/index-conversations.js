@@ -60,6 +60,7 @@ OPTIONS:
   --concurrency N    Parallel summarization (1-16, default: 1)
   -c N               Short form of --concurrency
   --no-summaries     Skip AI summary generation (free, but no summaries in results)
+  --verbose          Show per-conversation progress during embedding
   --help, -h         Show this help
 
 EXAMPLES:

@@ -25,7 +25,7 @@ async function processBatch(items, processor, concurrency) {
     }
     return results;
 }
-export async function indexConversations(limitToProject, maxConversations, concurrency = 1, noSummaries = false) {
+export async function indexConversations(limitToProject, maxConversations, concurrency = 1, noSummaries = false, verbose = false) {
     console.log('Initializing database...');
     const db = initDatabase();
     console.log('Loading embedding model...');
@@ -110,7 +110,11 @@ export async function indexConversations(limitToProject, maxConversations, concu
             console.log(`  Skipping ${toProcess.length} summaries (--no-summaries mode)`);
         }
         // Now process embeddings and DB inserts (fast, sequential is fine)
-        for (const conv of toProcess) {
+        for (let i = 0; i < toProcess.length; i++) {
+            const conv = toProcess[i];
+            if (verbose) {
+                console.log(`  [${i + 1}/${toProcess.length}] Embedding ${conv.file} (${conv.exchanges.length} exchanges)...`);
+            }
             for (const exchange of conv.exchanges) {
                 const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
                 const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
@@ -132,7 +136,7 @@ export async function indexConversations(limitToProject, maxConversations, concu
     db.close();
     console.log(`\n✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
 }
-export async function indexSession(sessionId, concurrency = 1, noSummaries = false) {
+export async function indexSession(sessionId, concurrency = 1, noSummaries = false, verbose = false) {
     console.log(`Indexing session: ${sessionId}`);
     // Find the conversation file for this session
     const PROJECTS_DIR = getProjectsDir();
@@ -172,6 +176,9 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
                     console.log(`Summary: ${summary.split(/\s+/).length} words`);
                 }
                 // Index
+                if (verbose) {
+                    console.log(`Embedding ${exchanges.length} exchanges...`);
+                }
                 for (const exchange of exchanges) {
                     const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
                     const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);
@@ -188,7 +195,7 @@ export async function indexSession(sessionId, concurrency = 1, noSummaries = fal
         console.log(`Session ${sessionId} not found`);
     }
 }
-export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
+export async function indexUnprocessed(concurrency = 1, noSummaries = false, verbose = false) {
     console.log('Finding unprocessed conversations...');
     if (concurrency > 1)
         console.log(`Concurrency: ${concurrency}`);
@@ -264,7 +271,11 @@ export async function indexUnprocessed(concurrency = 1, noSummaries = false) {
     }
     // Now index embeddings
     console.log(`\nIndexing embeddings...`);
-    for (const conv of unprocessed) {
+    for (let i = 0; i < unprocessed.length; i++) {
+        const conv = unprocessed[i];
+        if (verbose) {
+            console.log(`  [${i + 1}/${unprocessed.length}] Embedding ${conv.project}/${conv.file} (${conv.exchanges.length} exchanges)...`);
+        }
         for (const exchange of conv.exchanges) {
             const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
             const embedding = await generateExchangeEmbedding(exchange.userMessage, exchange.assistantMessage, toolNames);

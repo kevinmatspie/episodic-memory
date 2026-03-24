@@ -23,8 +23,14 @@ function getNoSummaries(): boolean {
   return process.argv.includes('--no-summaries');
 }
 
+// Parse --verbose flag
+function getVerbose(): boolean {
+  return process.argv.includes('--verbose');
+}
+
 const concurrency = getConcurrency();
 const noSummaries = getNoSummaries();
+const verbose = getVerbose();
 
 async function main() {
   try {
@@ -35,11 +41,11 @@ async function main() {
           console.error('Usage: index-cli index-session <session-id>');
           process.exit(1);
         }
-        await indexSession(sessionId, concurrency, noSummaries);
+        await indexSession(sessionId, concurrency, noSummaries, verbose);
         break;
 
       case 'index-cleanup':
-        await indexUnprocessed(concurrency, noSummaries);
+        await indexUnprocessed(concurrency, noSummaries, verbose);
         break;
 
       case 'verify':
@@ -104,12 +110,12 @@ async function main() {
 
         // Re-index everything
         console.log('Re-indexing all conversations...');
-        await indexConversations(undefined, undefined, concurrency, noSummaries);
+        await indexConversations(undefined, undefined, concurrency, noSummaries, verbose);
         break;
 
       case 'index-all':
       default:
-        await indexConversations(undefined, undefined, concurrency, noSummaries);
+        await indexConversations(undefined, undefined, concurrency, noSummaries, verbose);
         break;
     }
   } catch (error) {

@@ -41,7 +41,8 @@ export async function indexConversations(
   limitToProject?: string,
   maxConversations?: number,
   concurrency: number = 1,
-  noSummaries: boolean = false
+  noSummaries: boolean = false,
+  verbose: boolean = false
 ): Promise<void> {
   console.log('Initializing database...');
   const db = initDatabase();
@@ -152,7 +153,11 @@ export async function indexConversations(
     }
 
     // Now process embeddings and DB inserts (fast, sequential is fine)
-    for (const conv of toProcess) {
+    for (let i = 0; i < toProcess.length; i++) {
+      const conv = toProcess[i];
+      if (verbose) {
+        console.log(`  [${i + 1}/${toProcess.length}] Embedding ${conv.file} (${conv.exchanges.length} exchanges)...`);
+      }
       for (const exchange of conv.exchanges) {
         const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
         const embedding = await generateExchangeEmbedding(
@@ -183,7 +188,7 @@ export async function indexConversations(
   console.log(`\n✅ Indexing complete! Conversations: ${conversationsProcessed}, Exchanges: ${totalExchanges}`);
 }
 
-export async function indexSession(sessionId: string, concurrency: number = 1, noSummaries: boolean = false): Promise<void> {
+export async function indexSession(sessionId: string, concurrency: number = 1, noSummaries: boolean = false, verbose: boolean = false): Promise<void> {
   console.log(`Indexing session: ${sessionId}`);
 
   // Find the conversation file for this session
@@ -233,6 +238,9 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
         }
 
         // Index
+        if (verbose) {
+          console.log(`Embedding ${exchanges.length} exchanges...`);
+        }
         for (const exchange of exchanges) {
           const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
           const embedding = await generateExchangeEmbedding(
@@ -257,7 +265,7 @@ export async function indexSession(sessionId: string, concurrency: number = 1, n
   }
 }
 
-export async function indexUnprocessed(concurrency: number = 1, noSummaries: boolean = false): Promise<void> {
+export async function indexUnprocessed(concurrency: number = 1, noSummaries: boolean = false, verbose: boolean = false): Promise<void> {
   console.log('Finding unprocessed conversations...');
   if (concurrency > 1) console.log(`Concurrency: ${concurrency}`);
   if (noSummaries) console.log('⚠️  Running in no-summaries mode (skipping AI summaries)');
@@ -352,7 +360,11 @@ export async function indexUnprocessed(concurrency: number = 1, noSummaries: boo
 
   // Now index embeddings
   console.log(`\nIndexing embeddings...`);
-  for (const conv of unprocessed) {
+  for (let i = 0; i < unprocessed.length; i++) {
+    const conv = unprocessed[i];
+    if (verbose) {
+      console.log(`  [${i + 1}/${unprocessed.length}] Embedding ${conv.project}/${conv.file} (${conv.exchanges.length} exchanges)...`);
+    }
     for (const exchange of conv.exchanges) {
       const toolNames = exchange.toolCalls?.map(tc => tc.toolName);
       const embedding = await generateExchangeEmbedding(
