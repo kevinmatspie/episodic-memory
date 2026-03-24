@@ -127,35 +127,46 @@ Or reference past work in natural conversation - Claude will search when appropr
 
 ## API Configuration
 
-By default, episodic-memory uses your Claude Code authentication for summarization.
+Summarization can use either a local Ollama model or the Claude API.
 
-To route summarization through a custom Anthropic-compatible endpoint or override the model:
+### Ollama (Recommended — fully local)
 
 ```bash
-# Override model (default: haiku)
-export EPISODIC_MEMORY_API_MODEL=opus
-
-# Override fallback model on error (default: sonnet)
-export EPISODIC_MEMORY_API_MODEL_FALLBACK=sonnet
-
-# Route through custom endpoint
-export EPISODIC_MEMORY_API_BASE_URL=https://your-endpoint.com/api/anthropic
-export EPISODIC_MEMORY_API_TOKEN=your-token
-
-# Increase timeout for slow endpoints (milliseconds)
-export EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+# In your .env file
+EPISODIC_MEMORY_SUMMARIZER_PROVIDER=ollama
+EPISODIC_MEMORY_OLLAMA_MODEL=llama3.1:8b
+# EPISODIC_MEMORY_OLLAMA_BASE_URL=http://localhost:11434  # default
 ```
 
-These settings only affect episodic-memory's summarization calls, not your interactive Claude sessions.
+### Claude API (default)
 
-### What's Affected
+```bash
+# In your .env file
+EPISODIC_MEMORY_SUMMARIZER_PROVIDER=claude  # default if not set
 
-| Component | Uses custom config? |
-|-----------|---------------------|
-| Summarization | Yes (up to 10 calls/sync) |
-| Embeddings | No (local Transformers.js) |
-| Search | No (local SQLite) |
-| MCP tools | No |
+# Override model (default: haiku)
+EPISODIC_MEMORY_API_MODEL=haiku
+
+# Override fallback model on error (default: sonnet)
+EPISODIC_MEMORY_API_MODEL_FALLBACK=sonnet
+
+# Route through custom endpoint
+EPISODIC_MEMORY_API_BASE_URL=https://your-endpoint.com/api/anthropic
+EPISODIC_MEMORY_API_TOKEN=your-token
+
+# Increase timeout for slow endpoints (milliseconds)
+# EPISODIC_MEMORY_API_TIMEOUT_MS=3000000
+```
+
+### What Runs Where
+
+| Component | Local or Remote |
+|-----------|-----------------|
+| Embeddings | Local (Transformers.js, nomic-embed-text-v1.5) |
+| Text search | Local (SQLite FTS5 with porter stemming) |
+| Vector search | Local (SQLite sqlite-vec) |
+| Summarization | Local (Ollama) or Remote (Claude API) |
+| MCP tools | Local |
 
 ## Commands
 
@@ -192,6 +203,9 @@ Common operations:
 - `--cleanup` - Index all unprocessed conversations
 - `--verify` - Check index health
 - `--repair` - Fix detected issues
+- `--rebuild` - Delete DB and re-index everything (requires confirmation)
+- `--verbose` - Show per-conversation progress during embedding
+- `--no-summaries` - Skip AI summarization (use when .summary files already exist)
 
 ### `episodic-memory search`
 
@@ -225,10 +239,11 @@ open output.html
 ## How It Works
 
 1. **Sync** - Copies conversation files from `~/.claude/projects` to archive
-2. **Parse** - Extracts user-agent exchanges from JSONL format
+2. **Parse** - Extracts user-agent exchanges from JSONL format, linking tool results to their tool calls
 3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
-4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
-5. **Search** - Semantic search using vector similarity or exact text matching
+4. **Summarize** - Generates conversation summaries via Ollama (local) or Claude API
+5. **Index** - Stores in SQLite with sqlite-vec for vector search, FTS5 for full-text search, and conversation summaries
+6. **Search** - Combined semantic + full-text search with BM25 ranking and porter stemming
 
 ## Excluding Conversations
 
@@ -256,9 +271,9 @@ When installed as a Claude Code plugin, episodic-memory provides an MCP (Model C
 
 ### Available MCP Tools
 
-#### `episodic_memory_search`
+#### `search`
 
-Search indexed conversations using semantic similarity or exact text matching.
+Search indexed conversations using semantic similarity or FTS5 full-text matching.
 
 **Single-concept search**: Pass a string query
 ```json
@@ -279,13 +294,13 @@ Search indexed conversations using semantic similarity or exact text matching.
 
 **Parameters:**
 - `query` (string | string[]): Single string for regular search, or array of 2-5 strings for multi-concept AND search
-- `mode` ('vector' | 'text' | 'both'): Search mode for single-concept searches (default: 'both')
+- `mode` ('vector' | 'text' | 'both'): Search mode for single-concept searches (default: 'both'). Vector uses semantic similarity, text uses FTS5 full-text search with porter stemming
 - `limit` (number): Max results, 1-50 (default: 10)
 - `after` (string, optional): Only show conversations after YYYY-MM-DD
 - `before` (string, optional): Only show conversations before YYYY-MM-DD
 - `response_format` ('markdown' | 'json'): Output format (default: 'markdown')
 
-#### `episodic_memory_show`
+#### `read`
 
 Display a full conversation in readable markdown format.
 
@@ -297,6 +312,8 @@ Display a full conversation in readable markdown format.
 
 **Parameters:**
 - `path` (string): Absolute path to the JSONL conversation file
+- `startLine` (number, optional): Starting line number (1-indexed, inclusive)
+- `endLine` (number, optional): Ending line number (1-indexed, inclusive)
 
 ### Using the MCP Server Directly
 
