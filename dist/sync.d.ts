@@ -3,6 +3,7 @@ export interface SyncResult {
     skipped: number;
     indexed: number;
     summarized: number;
+    externallyDiscovered: number;
     errors: Array<{
         file: string;
         error: string;

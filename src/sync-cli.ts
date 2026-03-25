@@ -1,14 +1,14 @@
-import { syncConversations } from './sync.js';
-import { getArchiveDir } from './paths.js';
-import path from 'path';
-import os from 'os';
 import { spawn } from 'child_process';
+import os from 'os';
+import path from 'path';
+import { getArchiveDir } from './paths.js';
+import { syncConversations } from './sync.js';
 
 const args = process.argv.slice(2);
 
 if (args.includes('--help') || args.includes('-h')) {
   console.log(`
-Usage: episodic-memory sync [--background]
+Usage: episodic-memory sync [--background] [--no-summary-limit]
 
 Sync conversations from ~/.claude/projects to archive and index them.
 
@@ -21,7 +21,8 @@ Only processes files that are new or have been modified since last sync.
 Safe to run multiple times - subsequent runs are fast no-ops.
 
 OPTIONS:
-  --background    Run sync in background (for hooks, returns immediately)
+  --background        Run sync in background (for hooks, returns immediately)
+  --no-summary-limit  Summarize all pending conversations (default: 10 per run)
 
 EXAMPLES:
   # Sync all new conversations
@@ -30,21 +31,17 @@ EXAMPLES:
   # Sync in background (for hooks)
   episodic-memory sync --background
 
-  # Use in Claude Code hook
-  # In .claude/hooks/session-end:
-  episodic-memory sync --background
+  # Sync via cron (summarize everything discovered)
+  episodic-memory sync --no-summary-limit
 `);
   process.exit(0);
 }
 
-// Check if running in background mode
 const isBackground = args.includes('--background');
 
-// If background mode, fork the process and exit immediately
+// Background mode: fork a detached process and exit immediately
 if (isBackground) {
   const filteredArgs = args.filter(arg => arg !== '--background');
-
-  // Spawn a detached process
   const child = spawn(process.execPath, [
     process.argv[1], // This script
     ...filteredArgs
@@ -65,17 +62,26 @@ console.log('Syncing conversations...');
 console.log(`Source: ${sourceDir}`);
 console.log(`Destination: ${destDir}\n`);
 
-syncConversations(sourceDir, destDir)
+const noSummaryLimit = args.includes('--no-summary-limit');
+
+syncConversations(sourceDir, destDir, {
+  summaryLimit: noSummaryLimit ? Infinity : undefined
+})
   .then(result => {
     console.log(`\n✅ Sync complete!`);
     console.log(`  Copied: ${result.copied}`);
     console.log(`  Skipped: ${result.skipped}`);
     console.log(`  Indexed: ${result.indexed}`);
+    if (result.externallyDiscovered > 0) {
+      console.log(`  Externally discovered: ${result.externallyDiscovered}`);
+    }
     console.log(`  Summarized: ${result.summarized}`);
 
     if (result.errors.length > 0) {
       console.log(`\n⚠️  Errors: ${result.errors.length}`);
-      result.errors.forEach(err => console.log(`  ${err.file}: ${err.error}`));
+      for (const err of result.errors) {
+        console.log(`  ${err.file}: ${err.error}`);
+      }
     }
   })
   .catch(error => {

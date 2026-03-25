@@ -209,4 +209,69 @@ describe('sync command', () => {
 
     expect(count.count).toBe(1); // Only normal conversation indexed
   });
+
+  it('should detect and index files placed directly in the archive (e.g., via rsync)', async () => {
+    // Create an empty source directory (no conversations there)
+    mkdirSync(join(sourceDir, 'project-a'), { recursive: true });
+
+    // Place a conversation directly in the archive (simulating rsync from another machine)
+    mkdirSync(join(destDir, 'project-a'), { recursive: true });
+    const externalConversation = JSON.stringify({
+      type: 'user',
+      uuid: 'uuid-ext-1',
+      parentUuid: null,
+      timestamp: '2025-10-01T14:00:00Z',
+      isSidechain: false,
+      message: { role: 'user', content: 'Question from another machine' }
+    }) + '\n' + JSON.stringify({
+      type: 'assistant',
+      uuid: 'uuid-ext-2',
+      parentUuid: 'uuid-ext-1',
+      timestamp: '2025-10-01T14:00:01Z',
+      isSidechain: false,
+      message: { role: 'assistant', content: 'Answer from another machine' }
+    });
+
+    // Filename must be a UUID to pass the session ID filter
+    writeFileSync(join(destDir, 'project-a', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl'), externalConversation, 'utf-8');
+
+    // Initialize test database
+    const db = new Database(dbPath);
+    sqliteVec.load(db);
+    db.exec(`
+      CREATE TABLE exchanges (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        user_message TEXT NOT NULL,
+        assistant_message TEXT NOT NULL,
+        archive_path TEXT NOT NULL,
+        line_start INTEGER NOT NULL,
+        line_end INTEGER NOT NULL,
+        last_indexed INTEGER
+      )
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE vec_exchanges USING vec0(
+        id TEXT PRIMARY KEY,
+        embedding FLOAT[${EMBEDDING_DIM}]
+      )
+    `);
+    db.close();
+
+    const result = await syncConversations(sourceDir, destDir);
+
+    expect(result.copied).toBe(0);
+    expect(result.externallyDiscovered).toBe(1);
+    expect(result.indexed).toBe(1);
+
+    // Verify the exchange is in the database
+    const dbCheck = new Database(dbPath, { readonly: true });
+    const count = dbCheck.prepare('SELECT COUNT(*) as count FROM exchanges').get() as { count: number };
+    const exchange = dbCheck.prepare('SELECT user_message FROM exchanges LIMIT 1').get() as { user_message: string };
+    dbCheck.close();
+
+    expect(count.count).toBe(1);
+    expect(exchange.user_message).toContain('Question from another machine');
+  });
 });

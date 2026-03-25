@@ -52,18 +52,28 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         skipped: 0,
         indexed: 0,
         summarized: 0,
+        externallyDiscovered: 0,
         errors: []
     };
-    // Ensure source directory exists
     if (!fs.existsSync(sourceDir)) {
         return result;
     }
-    // Collect files to index and summarize
-    const filesToIndex = [];
+    const filesToIndex = new Set();
+    const skipCheckedFiles = new Set(); // Files already verified as non-excluded
     const filesToSummarize = [];
-    // Walk source directory
-    const projects = fs.readdirSync(sourceDir);
     const excludedProjects = getExcludedProjects();
+    function queueForSummarization(filePath) {
+        if (options.skipSummaries)
+            return;
+        if (!extractSessionIdFromPath(filePath))
+            return;
+        const summaryPath = filePath.replace('.jsonl', '-summary.txt');
+        if (fs.existsSync(summaryPath))
+            return;
+        filesToSummarize.push(filePath);
+    }
+    // Copy new/updated conversations from source to archive
+    const projects = fs.readdirSync(sourceDir);
     for (const project of projects) {
         if (excludedProjects.includes(project)) {
             console.log("\nSkipping excluded project: " + project);
@@ -81,20 +91,13 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
                 const wasCopied = copyIfNewer(srcFile, destFile);
                 if (wasCopied) {
                     result.copied++;
-                    filesToIndex.push(destFile);
+                    filesToIndex.add(destFile);
                 }
                 else {
                     result.skipped++;
                 }
-                // Check if this file needs a summary (whether newly copied or existing)
-                if (!options.skipSummaries) {
-                    const summaryPath = destFile.replace('.jsonl', '-summary.txt');
-                    if (!fs.existsSync(summaryPath) && !shouldSkipConversation(destFile)) {
-                        const sessionId = extractSessionIdFromPath(destFile);
-                        if (sessionId) {
-                            filesToSummarize.push({ path: destFile, sessionId });
-                        }
-                    }
+                if (!shouldSkipConversation(destFile)) {
+                    queueForSummarization(destFile);
                 }
             }
             catch (error) {
@@ -105,8 +108,56 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
             }
         }
     }
-    // Index copied files (unless skipIndex is set)
-    if (!options.skipIndex && filesToIndex.length > 0) {
+    // Detect archive files not yet indexed (e.g., from rsync or another machine)
+    if (!options.skipIndex && fs.existsSync(destDir)) {
+        const { initDatabase, getFileLastIndexed } = await import('./db.js');
+        const { parseConversation } = await import('./parser.js');
+        const db = initDatabase();
+        const archiveProjects = fs.readdirSync(destDir);
+        for (const project of archiveProjects) {
+            if (excludedProjects.includes(project))
+                continue;
+            const projectPath = path.join(destDir, project);
+            try {
+                if (!fs.statSync(projectPath).isDirectory())
+                    continue;
+            }
+            catch {
+                continue;
+            }
+            const files = fs.readdirSync(projectPath).filter(f => f.endsWith('.jsonl'));
+            for (const file of files) {
+                const archivePath = path.join(projectPath, file);
+                try {
+                    if (filesToIndex.has(archivePath))
+                        continue;
+                    if (!extractSessionIdFromPath(archivePath))
+                        continue;
+                    if (getFileLastIndexed(db, archivePath) !== null)
+                        continue;
+                    if (shouldSkipConversation(archivePath))
+                        continue;
+                    const exchanges = await parseConversation(archivePath, project, archivePath);
+                    if (exchanges.length === 0)
+                        continue;
+                    console.log(`Discovered unindexed archive file: ${project}/${file}`);
+                    filesToIndex.add(archivePath);
+                    skipCheckedFiles.add(archivePath);
+                    result.externallyDiscovered++;
+                    queueForSummarization(archivePath);
+                }
+                catch (error) {
+                    result.errors.push({
+                        file: archivePath,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                }
+            }
+        }
+        db.close();
+    }
+    // Index files
+    if (!options.skipIndex && filesToIndex.size > 0) {
         const { initDatabase, insertExchange } = await import('./db.js');
         const { initEmbeddings, generateExchangeEmbedding } = await import('./embeddings.js');
         const { parseConversation } = await import('./parser.js');
@@ -114,9 +165,9 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         await initEmbeddings();
         for (const file of filesToIndex) {
             try {
-                // Check for DO NOT INDEX marker
-                if (shouldSkipConversation(file)) {
-                    continue; // Skip indexing but file is already copied
+                // Archive-scanned files were already checked for exclusion markers
+                if (!skipCheckedFiles.has(file) && shouldSkipConversation(file)) {
+                    continue;
                 }
                 const project = path.basename(path.dirname(file));
                 const exchanges = await parseConversation(file, project, file);
@@ -136,11 +187,11 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         }
         db.close();
     }
-    // Generate summaries for files that need them
+    // Generate summaries
     if (!options.skipSummaries && filesToSummarize.length > 0) {
         const { parseConversation } = await import('./parser.js');
         const { summarizeConversation } = await import('./summarizer.js');
-        const { initDatabase: initDb, upsertSummary: upsert } = await import('./db.js');
+        const { initDatabase, upsertSummary } = await import('./db.js');
         const summaryLimit = options.summaryLimit ?? 10;
         const toSummarize = filesToSummarize.slice(0, summaryLimit);
         const remaining = filesToSummarize.length - toSummarize.length;
@@ -148,24 +199,23 @@ export async function syncConversations(sourceDir, destDir, options = {}) {
         if (remaining > 0) {
             console.log(`  (${remaining} more need summaries - will process on next sync)`);
         }
-        const summaryDb = initDb();
-        for (const { path: filePath, sessionId } of toSummarize) {
+        const summaryDb = initDatabase();
+        for (const filePath of toSummarize) {
             try {
                 const project = path.basename(path.dirname(filePath));
                 const exchanges = await parseConversation(filePath, project, filePath);
                 if (exchanges.length === 0) {
-                    // Write a placeholder summary so this file doesn't block future runs
                     const placeholderSummary = 'Trivial conversation with no substantive content.';
                     const summaryPath = filePath.replace('.jsonl', '-summary.txt');
                     fs.writeFileSync(summaryPath, placeholderSummary, 'utf-8');
-                    upsert(summaryDb, filePath, placeholderSummary);
+                    upsertSummary(summaryDb, filePath, placeholderSummary);
                     continue;
                 }
                 console.log(`  Summarizing ${path.basename(filePath)} (${exchanges.length} exchanges)...`);
                 const summary = await summarizeConversation(exchanges);
                 const summaryPath = filePath.replace('.jsonl', '-summary.txt');
                 fs.writeFileSync(summaryPath, summary, 'utf-8');
-                upsert(summaryDb, filePath, summary);
+                upsertSummary(summaryDb, filePath, summary);
                 result.summarized++;
             }
             catch (error) {

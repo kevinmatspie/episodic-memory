@@ -128,10 +128,21 @@ The SessionStart hook indexes when Claude Code starts, but a cron job keeps the 
 crontab -e
 
 # Add this line (adjust the path to your clone):
-*/15 * * * * cd /path/to/episodic-memory && /usr/local/bin/node cli/episodic-memory.js sync >> /tmp/episodic-memory-sync.log 2>&1
+*/15 * * * * cd /path/to/episodic-memory && /usr/local/bin/node cli/episodic-memory.js sync --no-summary-limit >> /tmp/episodic-memory-sync.log 2>&1
 ```
 
 Use `which node` to find your Node.js path — on Apple Silicon Macs with Homebrew it's typically `/opt/homebrew/bin/node`.
+
+**Multi-machine sync with rsync:**
+
+If you use Claude Code on multiple machines, you can share conversation history by rsyncing the archive directory between them. Sync automatically detects and indexes files that appear in the archive from external sources:
+
+```bash
+# Push this machine's archive to the other (silently fails if unreachable)
+*/30 * * * * rsync -az ~/.config/superpowers/conversation-archive/ other-machine:~/.config/superpowers/conversation-archive/ 2>/dev/null
+```
+
+Each machine maintains its own SQLite index. The next `episodic-memory sync` (via cron or SessionStart hook) picks up the new files and indexes them locally.
 
 ### `episodic-memory search`
 
