@@ -8,3 +8,4 @@ tmp/
 *.db-wal
 .env
 .claude/settings.local.json
+scripts/sync-machines.sh
