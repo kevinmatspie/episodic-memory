@@ -1,0 +1,13 @@
+{
+  "name": "episodic-memory",
+  "owner": {
+    "name": "Kevin Mills"
+  },
+  "plugins": [
+    {
+      "name": "episodic-memory",
+      "source": "./",
+      "description": "Semantic search for Claude Code conversations. Remember past discussions, decisions, and patterns."
+    }
+  ]
+}
