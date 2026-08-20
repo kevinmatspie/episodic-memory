@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> Note: releases 1.1.0 through 1.4.0 are not recorded below.
+
+## [1.4.1] - 2026-08-20
+
+### Fixed
+- **MCP server wrapper now self-heals broken native dependencies**: The wrapper only ran
+  `npm install` when `node_modules` was missing entirely, so a directory that existed but
+  held a stale or unbuilt `better-sqlite3` passed the check and failed lazily on the first
+  search. Since `better-sqlite3` compiles against the V8 ABI rather than N-API, every Node
+  major upgrade broke it with no way to recover automatically.
+  - Startup probes the native dependencies the way `initDatabase` does — opening a SQLite
+    handle and loading `sqlite-vec` — and repairs them when that fails, via
+    `npm rebuild better-sqlite3` escalating to `npm install`.
+  - The rebuild is scoped to `better-sqlite3`: a bare `npm rebuild` re-runs
+    `onnxruntime-node`'s postinstall, which fetches the ONNX runtime binaries and can
+    outlast the client's startup timeout.
+  - The repair runs in a detached worker. The MCP client kills a server that misses its
+    startup timeout, and a from-source build can exceed it, so an inline repair would be
+    killed part-way every time and never converge.
+  - Concurrent sessions are serialised by a mkdir-based lock with owner tokens and a
+    heartbeat, so only one `npm` ever runs against the tree.
+  - Repair progress is logged to `.episodic-memory-repair.log` in the plugin root.
+
+### Added
+- Tests for the repair lock state machine and entry-point detection.
+
 ## [1.0.15] - 2025-12-17
 
 ### Changed
