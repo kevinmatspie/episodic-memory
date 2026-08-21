@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Note: releases 1.1.0 through 1.4.0 are not recorded below.
 
+## [1.4.2] - 2026-08-21
+
+### Fixed
+- **CLI entry points now self-heal broken native dependencies too**: 1.4.1 taught the MCP
+  server wrapper to repair an unloadable `better-sqlite3`, but the CLI had its own
+  `node_modules` and no such guard, so `episodic-memory-search` still failed with a raw
+  `ERR_DLOPEN_FAILED` after a Node major upgrade.
+  - The repair machinery moved to a shared `cli/native-deps.js` used by both the wrapper
+    and the CLI, rather than being duplicated.
+  - Commands that reach the compiled CLIs verify and repair first. Top-level `--help` is
+    answered by the wrapper itself and stays instant. `show` never opens the database, so it
+    keeps working on an ABI-broken tree; it is guarded only when its own dependency
+    (`marked`) cannot resolve, which is the case that would otherwise produce the raw error
+    this change exists to remove.
+  - A CLI waits for the repair (it has no startup deadline); the MCP server keeps its short
+    budget and asks for a restart, since the client kills a slow start.
+  - Hook-driven runs (`sync --background`, `index-conversations --session`) use a short
+    budget and stay quiet when stderr is not a terminal.
+  - The root is derived from the module's own location instead of `CLAUDE_PLUGIN_ROOT`, so
+    running a repo checkout's CLI inside a Claude Code session no longer repairs the
+    plugin copy's tree instead of its own.
+  - A lock records the pid of the npm it started, so a holder killed with `SIGKILL` — whose
+    detached npm keeps writing `node_modules` — is not mistaken for an abandoned repair.
+
 ## [1.4.1] - 2026-08-20
 
 ### Fixed

@@ -4,11 +4,22 @@ import { dirname, join } from 'path';
 import { spawn } from 'child_process';
 import { realpathSync } from 'fs';
 import { createInterface } from 'readline';
+import {
+  ensureNativeDeps,
+  reportUnavailable,
+  isInteractiveRun,
+  repairBudgetMs,
+  PLUGIN_ROOT
+} from './native-deps.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(realpathSync(__filename));
 
-function runScript(command, args) {
+async function runScript(command, args) {
+  // Guarded here rather than in main() so that --help (answered by showHelp above) and the
+  // --rebuild confirmation prompt are both reached without triggering a repair; only work
+  // that actually opens the database does.
+  await requireNativeDeps();
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [join(__dirname, '../dist/index-cli.js'), command, ...args], {
       stdio: 'inherit'
@@ -17,9 +28,12 @@ function runScript(command, args) {
     child.on('exit', (code) => {
       if (code === 0) {
         resolve();
-      } else {
-        reject(new Error(`Command failed with exit code ${code}`));
+        return;
       }
+      // Exit with the child's code rather than rejecting: the child has already explained
+      // itself (often with remediation advice from its own dependency guard), and main's
+      // catch would append an unrelated-looking "Command failed with exit code 1" on top.
+      process.exit(code ?? 1);
     });
 
     child.on('error', (err) => {
@@ -40,6 +54,36 @@ function askConfirmation(question) {
       resolve(answer.toLowerCase() === 'yes');
     });
   });
+}
+
+// `--session` is the automated path this tool documents for a sessionEnd hook, so it never
+// waits long: nothing is served by stalling session teardown when the repair is detached
+// and continues regardless. Going *silent* is a stricter condition — it additionally
+// requires stderr not to be a terminal — so a person running --session by hand still waits
+// only briefly but does see why it failed.
+let hookInvocation = false;
+
+// No help check here, unlike episodic-memory.js: main() handles --help before runScript is
+// ever reached, and dist/index-cli.js ignores a trailing --help and opens the database
+// anyway (`index-conversations --verify --help` really does run verify).
+async function requireNativeDeps() {
+  // Set by an ancestor that already ensured *this* tree — not by `episodic-memory index`,
+  // which spawns this file unguarded so the --rebuild prompt comes first. The case it
+  // exists for is summarization spawning `claude`, whose SessionStart hook runs a CLI again
+  // inside this process tree; it carries the root rather than a bare flag so that a
+  // different tree is never waved through as already verified.
+  if (process.env.EPISODIC_MEMORY_DEPS_READY === PLUGIN_ROOT) return;
+
+  const unattended = hookInvocation && !isInteractiveRun();
+  const outcome = await ensureNativeDeps({
+    waitMs: repairBudgetMs({ unattended: hookInvocation }),
+    quiet: unattended
+  });
+  if (outcome !== 'ready') {
+    if (!unattended) reportUnavailable(outcome);
+    process.exit(1);
+  }
+  process.env.EPISODIC_MEMORY_DEPS_READY = PLUGIN_ROOT;
 }
 
 function showHelp() {
@@ -96,6 +140,7 @@ SEE ALSO:
 async function main() {
   const command = process.argv[2];
   const args = process.argv.slice(3);
+  hookInvocation = command === '--session';
 
   try {
     switch (command) {
